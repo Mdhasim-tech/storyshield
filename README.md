@@ -58,37 +58,24 @@ cd storyshield
 
 Copy the sample environment file and fill in your values:
 
-```bash
-cp .env.example .env
-```
-
-Then update the values in the generated `.env` file.
-
 ### 3. Backend setup
 
-```bash
+```Powershell
 cd backend
 python -m venv venv
-source venv/bin/activate
+venv/Scripts/activate
 pip install -r requirements.txt
 ```
 
 ### 4. Frontend setup
 
-```bash
+```Powershell
 cd ../frontend
 npm install
 ```
 
 ## Running the app
 
-### Backend
-
-```bash
-cd backend
-source venv/bin/activate
-python run.py
-```
 
 The backend runs on:
 
@@ -98,7 +85,7 @@ http://localhost:5000
 
 ### Frontend
 
-```bash
+```powershell
 cd frontend
 npm run dev
 ```
