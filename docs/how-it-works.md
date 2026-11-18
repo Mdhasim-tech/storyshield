@@ -20,5 +20,9 @@ flowchart LR
 - The backend stores the uploaded PDF and serves it back for viewing.
 - PDF text is extracted and broken into chapter-aware chunks.
 - Chroma indexes those chunks so the app can search the relevant book context.
-- The reading assistant only uses content available up to the user’s current chapter/page.
-- The model then answers without inventing plot details beyond that point.
+- By default, the reading assistant only uses content available up to the user’s current chapter/page.
+- Readers can explicitly enable future spoilers for an individual question; spoiler protection is on by default.
+- The reader saves the selected chapter/page and opens the PDF at the bookmarked page on return.
+- The library tracks books marked as read or pending and shows both totals.
+- A separate summary section generates a spoiler-safe summary through the saved reading position.
+- In spoiler-safe mode, the model answers without inventing plot details beyond that point; with spoilers enabled, it can use future book content.

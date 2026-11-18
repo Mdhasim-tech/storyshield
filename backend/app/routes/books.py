@@ -2,12 +2,14 @@ import os
 from datetime import datetime
 from flask import Blueprint, request, jsonify, current_app, g
 from bson import ObjectId
+from bson.errors import InvalidId
 from app.extensions import get_db, get_book_collection
 from app.ingestion.pdf_loader import extract_pages
 from app.ingestion.chapter_detector import chapterize_pages, group_by_chapter
 from app.ingestion.chunker import chunk_chapters
 from app.agent.retriever import get_safe_chunks
 from app.agent.react_loop import answer_question
+from app.agent.llm_client import EmptyAssistantResponseError
 from app.routes.auth import require_auth
 
 books_bp = Blueprint("books", __name__)
@@ -28,6 +30,7 @@ def upload_book():
         "user_id": ObjectId(g.user["_id"]),
         "uploaded_at": datetime.utcnow(),
         "status": "processing",
+        "reading_status": "pending",
         "reading_progress": {"chapter_order": 1, "page": 1}
     })
     book_id = str(book.inserted_id)
@@ -41,6 +44,15 @@ def upload_book():
     pages = chapterize_pages(pages)
     chapters = group_by_chapter(pages)
     chunks = chunk_chapters(chapters)
+
+    if not chunks:
+        db.books.update_one(
+            {"_id": ObjectId(book_id)},
+            {"$set": {"status": "failed", "error": "No extractable text found in the uploaded PDF"}}
+        )
+        return jsonify({
+            "error": "No extractable text found in the uploaded PDF. Ensure it contains selectable text."
+        }), 422
 
     collection = get_book_collection(book_id)
     collection.add(
@@ -67,7 +79,35 @@ def list_books():
         b["_id"] = str(b["_id"])
         if "user_id" in b:
             b["user_id"] = str(b["user_id"])
+        b.setdefault("reading_status", "pending")
     return jsonify(books)
+
+
+@books_bp.route("/<book_id>/reading-status", methods=["PUT"])
+@require_auth
+def update_reading_status(book_id):
+    data = request.get_json(silent=True) or {}
+    reading_status = data.get("reading_status")
+
+    if reading_status not in ("pending", "read"):
+        return jsonify({"error": "Reading status must be 'pending' or 'read'"}), 400
+
+    user_id = ObjectId(g.user["_id"])
+    try:
+        book_object_id = ObjectId(book_id)
+    except InvalidId:
+        return jsonify({"error": "Book not found"}), 404
+
+    db = get_db()
+    book = db.books.find_one({"_id": book_object_id, "user_id": user_id})
+    if not book:
+        return jsonify({"error": "Book not found"}), 404
+
+    db.books.update_one(
+        {"_id": book_object_id, "user_id": user_id},
+        {"$set": {"reading_status": reading_status}}
+    )
+    return jsonify({"reading_status": reading_status})
 
 
 @books_bp.route("/<book_id>/progress", methods=["GET", "PUT"])
@@ -107,12 +147,18 @@ def ask_question(book_id):
     if not question:
         return jsonify({"error": "Question is required"}), 400
 
-    result = answer_question(
-        book_id=book_id,
-        question=question,
-        chapter_order=chapter_order,
-        page=page
-    )
+    try:
+        result = answer_question(
+            book_id=book_id,
+            question=question,
+            chapter_order=chapter_order,
+            page=page,
+            allow_future=data.get("allow_future") is True
+        )
+    except EmptyAssistantResponseError as error:
+        current_app.logger.warning("Assistant returned an empty response for book %s", book_id)
+        return jsonify({"error": str(error)}), 502
+
     return jsonify(result)
 
 
